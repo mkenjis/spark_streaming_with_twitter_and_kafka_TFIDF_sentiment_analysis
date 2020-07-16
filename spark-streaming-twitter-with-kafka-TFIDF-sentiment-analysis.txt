@@ -106,16 +106,12 @@ val twitterStream = TwitterUtils.createStream(ssc, Some(auth), filters )
 
 val tweets = twitterStream.filter(tweet => tweet.getLang.equals("en") || tweet.getLang.equals("")).map(_.getText()).map(_.replaceAll("/[^A-Za-z0-9 ]/", "")).map(_.replaceAll("/", "")).map(_.replaceAll("RT.+?(?=\\s)\\s", "")).map(_.replaceAll("https([^\\s]+).*", ""))
 
-
 import kfkProducerWrapper.KafkaProducerWrapper
 
-// val brareTokens = sc.broadcast(rareTokens)
 
 tweets.foreachRDD( rdd  => {
-  val revCategories = for ((k,v) <- categories) yield (v.toDouble, k.toString)
-  val HashTF = hashingTF
-  val IDFModel = idf
-  val lrmodel = model
+
+  val brareTokens = rareTokens
   val regex = """[^0-9]*""".r
   val stopwords = Set(
  "","the","a","an","of","or","in","for","by","on","but", "is", "not", "with", "as", "was", "if",
@@ -126,10 +122,16 @@ tweets.foreachRDD( rdd  => {
    .map(_.toLowerCase)
    .filter(token => regex.pattern.matcher(token).matches)
    .filterNot(token => stopwords.contains(token))
-//   .filterNot(token => brareTokens.contains(token))
+   .filterNot(token => brareTokens.contains(token))
    .filter(token => token.size >= 2)
    .toSeq
   }
+  
+  val revCategories = for ((k,v) <- categories) yield (v.toDouble, k.toString)
+  val HashTF = hashingTF
+  val IDFModel = idf
+  val lrmodel = model
+  
   val testSet = rdd.map(x => Array(x, "key"))
   val testtokens = testSet.map(x => tokenize(x(0)))
   val testTf = HashTF.transform(testtokens)
@@ -139,7 +141,6 @@ tweets.foreachRDD( rdd  => {
     KafkaProducerWrapper.brokerList = "ubkafka:9092"
     val producer = KafkaProducerWrapper.instance
     val validPredicts = iter.map{ case(text,vector) => (lrmodel.predict(vector),text) }
-    //validPredicts.foreach({ x => producer.send("metric", x._1.toString, x._2(0)) })
     validPredicts.foreach({ x => producer.send("metric", revCategories(x._1), x._2(0)) })
   })
 })
